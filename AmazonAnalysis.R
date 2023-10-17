@@ -10,6 +10,8 @@ setwd("C:/Users/davis/OneDrive - Brigham Young University/Documents/skool/new/st
 train <- vroom("train.csv")
 test <- vroom("test.csv")
 
+train$ACTION <- as.factor(train$ACTION)
+
 # 2 plots for EDA - column characterizations and bar plot of response (ACTION)
 (DataExplorer::plot_intro(train)) / (DataExplorer::plot_bar(train))
 
@@ -19,8 +21,6 @@ recipe <- recipe(ACTION ~ ., data = train) %>%
   step_other(all_nominal_predictors(), threshold = .01) %>% # all uncommon categories for all variables converted to other
   step_dummy(all_nominal_predictors()) %>% 
   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION))
-
-train$ACTION <- as.factor(train$ACTION)
 
 prep <- prep(recipe)
 
@@ -81,3 +81,40 @@ pen_log_predictions <- final_pen_log_workflow %>%
 pen_log_submission <- data.frame(id = test$id, ACTION = pen_log_predictions$.pred_1)
 
 write.csv(pen_log_submission, "pen_log_submission.csv", row.names = F)
+
+
+# classification random forest
+
+class_rf_model <- rand_forest(mtry = tune(),
+                              min_n = tune(),
+                              trees = 500) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+class_rf_wf <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(class_rf_model)
+
+class_rf_tuning_grid <- grid_regular(mtry(range = c(1, 10)),
+                                     min_n(),
+                                     levels = 5)
+
+class_rf_folds <- vfold_cv(train, v = 5, repeats = 1)
+
+class_rf_results <- class_rf_wf %>%
+  tune_grid(resamples = class_rf_folds,
+            grid = class_rf_tuning_grid)
+
+best_class_rf <- class_rf_results %>%
+  select_best("roc_auc")
+
+final_class_rf_wf <- class_rf_wf %>%
+  finalize_workflow(best_class_rf) %>%
+  fit(data = train)
+
+class_rf_predictions <- final_class_rf_wf %>%
+  predict(new_data = test)
+
+class_rf_submission <- data.frame(id = test$id, ACTION = class_rf_predictions$.pred_class)
+
+write.csv(class_rf_submission, file = "class_rf_submission.csv", row.names = F)
