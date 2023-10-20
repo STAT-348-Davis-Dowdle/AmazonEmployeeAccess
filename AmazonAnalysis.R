@@ -4,6 +4,7 @@ library(tidymodels)
 library(embed)
 library(discrim)
 library(naivebayes)
+library(kknn)
 
 # set working directory
 setwd("C:/Users/davis/OneDrive - Brigham Young University/Documents/skool/new/stat 348/AmazonEmployeeAccess/AmazonEmployeeAccess")
@@ -161,3 +162,42 @@ nb_prediction <- final_nb_wf %>%
 nb_submission <- data.frame(id = test$id, ACTION = nb_prediction$.pred_1)
 
 write.csv(nb_submission, "nb_submission.csv", row.names = F)
+
+
+# KNN
+recipe <- recipe(ACTION ~ ., data = train) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = .01) %>% # all uncommon categories for all variables converted to other
+  # step_dummy(all_nominal_predictors()) %>% 
+  step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION))
+
+knn_model <- nearest_neighbor(neighbors = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("kknn")
+
+knn_wf <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(knn_model)
+
+knn_tuning_grid <- grid_regular(neighbors(range = c(5, 25)),
+                                levels = 5)
+
+knn_folds <- vfold_cv(train, v = 5, repeats = 1)
+
+knn_results <- knn_wf %>%
+  tune_grid(resamples = knn_folds,
+            grid = knn_tuning_grid)
+
+knn_best <- knn_results %>%
+  select_best("roc_auc")
+
+knn_final_wf <- knn_wf %>%
+  finalize_workflow(knn_best) %>%
+  fit(data = train)
+
+knn_prediction <- knn_final_wf %>%
+  predict(new_data = test, type = "prob")
+
+knn_submission <- data.frame(id = test$id, ACTION = knn_prediction$.pred_1)
+
+write.csv(knn_submission, file = "knn_submission.csv", row.names = F)
