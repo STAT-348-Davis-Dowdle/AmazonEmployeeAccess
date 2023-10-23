@@ -201,3 +201,75 @@ knn_prediction <- knn_final_wf %>%
 knn_submission <- data.frame(id = test$id, ACTION = knn_prediction$.pred_1)
 
 write.csv(knn_submission, file = "knn_submission.csv", row.names = F)
+
+
+# Principal Component Reduction
+pca_recipe <- recipe(ACTION ~ ., data = train) %>%
+  step_other(all_nominal_predictors(), threshold = .001) %>% # all uncommon categories for all variables converted to other
+  step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_predictors(), threshold= .9)
+
+pca_model <- nearest_neighbor(neighbors = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("kknn")
+
+pca_wf <- workflow() %>%
+  add_recipe(pca_recipe) %>%
+  add_model(pca_model)
+
+pca_tuning_grid <- grid_regular(neighbors(),
+                                levels = 5)
+
+pca_folds <- vfold_cv(train, v = 5, repeats = 1)
+
+pca_results <- pca_wf %>%
+  tune_grid(resamples = pca_folds,
+            grid = pca_tuning_grid)
+
+pca_best <- pca_results %>%
+  select_best("roc_auc")
+
+pca_final_wf <- pca_wf %>%
+  finalize_workflow(pca_best) %>%
+  fit(data = train)
+
+pca_prediction <- pca_final_wf %>%
+  predict(new_data = test, type = "prob")
+
+pca_submission <- data.frame(id = test$id, ACTION = pca_prediction$.pred_1)
+
+write.csv(pca_submission, file = "pca_submission.csv", row.names = F)
+
+
+pca_nb_model <- naive_Bayes(Laplace = tune(), smoothness = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("naivebayes")
+
+pca_nb_wf <- workflow() %>%
+  add_recipe(pca_recipe) %>%
+  add_model(pca_nb_model)
+
+pca_nb_tuning_grid <- grid_regular(Laplace(),
+                                   smoothness(),
+                                   levels = 5)
+
+pca_nb_folds <- vfold_cv(train, v = 5, repeats = 1)
+
+pca_nb_results <- pca_nb_wf %>%
+  tune_grid(resamples = pca_nb_folds,
+            grid = pca_nb_tuning_grid)
+
+pca_best_nb_wf <- pca_nb_results %>%
+  select_best("roc_auc")
+
+final_pca_nb_wf <- pca_nb_wf %>%
+  finalize_workflow(pca_best_nb_wf) %>%
+  fit(data = train)
+
+pca_nb_prediction <- final_pca_nb_wf %>%
+  predict(new_data = test, type = "prob")
+
+pca_nb_submission <- data.frame(id = test$id, ACTION = pca_nb_prediction$.pred_1)
+
+write.csv(pca_nb_submission, "pca_nb_submission.csv", row.names = F)
