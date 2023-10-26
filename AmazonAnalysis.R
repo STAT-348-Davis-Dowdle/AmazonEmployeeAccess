@@ -5,6 +5,7 @@ library(embed)
 library(discrim)
 library(naivebayes)
 library(kknn)
+library(kernlab)
 
 # set working directory
 setwd("C:/Users/davis/OneDrive - Brigham Young University/Documents/skool/new/stat 348/AmazonEmployeeAccess/AmazonEmployeeAccess")
@@ -273,3 +274,41 @@ pca_nb_prediction <- final_pca_nb_wf %>%
 pca_nb_submission <- data.frame(id = test$id, ACTION = pca_nb_prediction$.pred_1)
 
 write.csv(pca_nb_submission, "pca_nb_submission.csv", row.names = F)
+
+
+# Support Vector Machines
+svm_recipe <- recipe(ACTION ~ ., data = train) %>%
+  step_mutate_at(all_predictors(), fn = factor) %>%
+  step_other(all_nominal_predictors(), threshold = .001) %>% # all uncommon categories for all variables converted to other
+  step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_numeric_predictors())
+
+svm_model <- svm_rbf(rbf_sigma = tune(), cost = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+svm_wf <- workflow() %>%
+  add_recipe(svm_recipe) %>%
+  add_model(svm_model)
+
+svm_tuning_grid <- grid_regular(rbf_sigma(), cost(), levels = 3)
+
+svm_folds <- vfold_cv(train, v = 5, repeats = 1)
+
+svm_results <- svm_wf %>%
+  tune_grid(resamples = svm_folds,
+            grid = svm_tuning_grid)
+
+svm_best <- svm_results %>%
+  select_best("roc_auc")
+
+svm_final_wf <- svm_wf %>%
+  finalize_workflow(svm_best) %>%
+  fit(data = train)
+
+svm_predictions <- svm_final_wf %>%
+  predict(new_data = test, type = "prob")
+
+svm_submission <- data.frame(id = test$id, ACTION = svm_predictions$.pred_1)
+
+write.csv(svm_submission, "svm_submission.csv", row.names = F)
